@@ -22,9 +22,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.mitzacoder.kemiri.data.HarnessFeature
 import io.github.mitzacoder.kemiri.data.HarnessRepository
 import io.github.mitzacoder.kemiri.features.chat.markdownText
 import io.github.mitzacoder.kemiri.protocol.NotificationPayload
+import io.github.mitzacoder.kemiri.protocol.NotificationPayloadQuestion
 import io.github.mitzacoder.kemiri.ui.components.Lucide
 import io.github.mitzacoder.kemiri.ui.components.LucideGlyph
 import io.github.mitzacoder.kemiri.ui.theme.Jarvis
@@ -36,7 +38,9 @@ internal const val QUESTION_CHANGED = "This question changed"
 
 internal fun InAppAlert.pushPayload() = with(alert) {
     NotificationPayload(kind, title, body, this@pushPayload.backendKey, projectId, workerId, scheduleId,
-        coordinatorId, entryId, threadId, artifactId, taskId, tag, at, answerId = answerId)
+        coordinatorId, entryId, threadId, artifactId, taskId, tag, at, answerId = answerId,
+        taskRevision = taskRevision, laterAllowed = laterAllowed,
+        question = question?.let { NotificationPayloadQuestion(it.id, it.revision, it.quickAnswerAllowed, warning = it.warning, approval = it.approval) })
 }
 
 /** Sits in the focused window, above screen content but outside the status bar and the composer. */
@@ -52,6 +56,9 @@ internal fun InAppBannerHost(repository: HarnessRepository, onOpen: (InAppAlert)
         inAppAlerts.disturbedAt(System.currentTimeMillis())) return
     val sessions by repository.sessions.collectAsStateWithLifecycle()
     val session = sessions.firstOrNull { it.config.key == banner.latest.backendKey }
+    val connection = session?.client?.state?.collectAsStateWithLifecycle()?.value
+    val canPostpone = banner.kind == AlertBannerKind.Single && connection?.supports(HarnessFeature.ATTENTION_LATER) == true &&
+        banner.latest.pushPayload().offersLater()
     val projects = session?.projects?.collectAsStateWithLifecycle()?.value.orEmpty()
     val projectName = projects.firstOrNull { it.id == banner.latest.alert.projectId }?.name
         ?: banner.latest.alert.projectId ?: "Kemiri"
@@ -78,6 +85,7 @@ internal fun InAppBannerHost(repository: HarnessRepository, onOpen: (InAppAlert)
         key(banner.id) {
             AlertBannerCard(banner, banners.size, projectName, session?.config?.name, inAppAlerts.showMessageText,
                 dismiss, open, onNeedsYou, { answer -> center.answerAlert(banner.latest, answer) },
+                postpone = if (canPostpone) ({ center.postponeAlert(banner.latest) }) else null,
                 menuOpen = menuOpen, onMenuOpen = { menuOpen = it },
                 onMute = { projectId -> center.muteFromBanner(banner.latest.backendKey, projectId) },
                 onTurnOffSounds = center::turnOffAlertSounds,
@@ -94,7 +102,7 @@ internal fun InAppBannerHost(repository: HarnessRepository, onOpen: (InAppAlert)
 private fun AlertBannerCard(
     banner: AlertBanner, count: Int, projectName: String, backendName: String?, showText: Boolean,
     dismiss: () -> Unit, open: () -> Unit, openNeedsYou: () -> Unit,
-    answer: suspend (String) -> String?, menuOpen: Boolean, onMenuOpen: (Boolean) -> Unit,
+    answer: suspend (String) -> String?, postpone: (suspend () -> String?)?, menuOpen: Boolean, onMenuOpen: (Boolean) -> Unit,
     onMute: (String?) -> Unit, onTurnOffSounds: () -> Unit, modifier: Modifier,
 ) {
     val latest = banner.latest
@@ -173,7 +181,7 @@ private fun AlertBannerCard(
                 body?.let { Text(it, color = colors.fgMuted, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis) }
             }
             if (showText) problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            if (choices.isNotEmpty() || banner.kind != AlertBannerKind.Single || (showText && problem == QUESTION_CHANGED)) {
+            if (choices.isNotEmpty() || (showText && postpone != null) || banner.kind != AlertBannerKind.Single || (showText && problem == QUESTION_CHANGED)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 2.dp, end = 4.dp)) {
                     choices.forEach { choice ->
                         val selected = marked == choice.label
@@ -188,6 +196,15 @@ private fun AlertBannerCard(
                                     }
                                 }
                             }, label = { Text(if (selected && !submitting) "Send ${choice.label}" else choice.label, fontWeight = if (choice.recommended) FontWeight.SemiBold else FontWeight.Normal) })
+                    }
+                    if (showText && postpone != null) TextButton(enabled = !submitting, onClick = {
+                        submitting = true
+                        scope.launch {
+                            problem = postpone()
+                            submitting = false
+                        }
+                    }, colors = ButtonDefaults.textButtonColors(contentColor = colors.fgMuted), modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text("Later")
                     }
                     TextButton(onClick = open, modifier = Modifier.heightIn(min = 48.dp)) {
                         Text(if (banner.kind == AlertBannerKind.Single) "Open" else "Open Needs you")

@@ -24,7 +24,7 @@ internal const val PUSH_UNDO_MS = 5_000L
 private const val ACTION_MAX_DELAY_MS = 120_000L
 internal const val PUSH_JOB_ACTION_ID = "actionId"
 
-@Serializable internal enum class PushActionKind { Answer, Reply, MarkRead }
+@Serializable internal enum class PushActionKind { Answer, Reply, MarkRead, Later }
 @Serializable internal enum class PushActionPhase { Waiting, Sending, Failed }
 @Serializable internal data class PushActionBinding(val backendId: String, val sessionId: String)
 
@@ -93,7 +93,7 @@ internal class PendingPushActions(private val app: HarnessApplication) {
             "undo" -> undo(token, restore = true)
             "dismiss" -> undo(token, restore = false)
             "retry" -> retry(token)
-            "choice", "reply", "read" -> stage(token, operation, parts.getOrNull(2)?.toIntOrNull(), pushRemoteText(intent))
+            "choice", "reply", "read", "later" -> stage(token, operation, parts.getOrNull(2)?.toIntOrNull(), pushRemoteText(intent))
         }
     }
 
@@ -107,6 +107,7 @@ internal class PendingPushActions(private val app: HarnessApplication) {
             operation == "reply" && question != null -> PushActionKind.Answer
             operation == "reply" && payload.kind == "reply" -> PushActionKind.Reply
             operation == "read" && payload.kind == "reply" -> PushActionKind.MarkRead
+            operation == "later" && payload.offersLater() -> PushActionKind.Later
             else -> return@withLock
         }
         val text = when (operation) {
@@ -130,8 +131,13 @@ internal class PendingPushActions(private val app: HarnessApplication) {
             postPushActionStatus(app, action, PushActionResult.Offline, retry = false)
             return@withLock
         }
+        if (kind == PushActionKind.Later && !cancelPushActionCard(app, token, source)) {
+            store.remove(id)
+            jobs?.cancel(jobId)
+            return@withLock
+        }
         postPushActionStatus(app, action, result = null)
-        notifications.cancel(source.tag, 0)
+        if (kind != PushActionKind.Later) notifications.cancel(source.tag, 0)
         startTimer(action)
     }
 
@@ -205,7 +211,7 @@ internal class PendingPushActions(private val app: HarnessApplication) {
         val retry = when (result) {
             PushActionResult.Offline -> action.binding != null || action.kind == PushActionKind.MarkRead && action.payload.answerId == null
             // A reply ID and the answer revision survive retries. Never automatically retry a possibly committed action.
-            PushActionResult.Unconfirmed -> action.binding != null
+            PushActionResult.Unconfirmed -> action.binding != null && action.kind != PushActionKind.Later
             else -> false
         }
         val keepRetry = if (retry) store.save(action.copy(phase = PushActionPhase.Failed, failure = result)) else { store.remove(action.id); false }

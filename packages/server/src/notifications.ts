@@ -833,6 +833,8 @@ export function notificationPayload(
 	const taskTitle = notificationTextWithin(event.taskTitle, 120, 144);
 	const message = notificationTextWithin(event.message === undefined ? undefined : markdownText(event.message, true), 600, 1600);
 	const question = pushQuestion(event);
+	const laterAllowed = event.projectId != null && (event.kind === "board_question" ? question != null && !question.approval :
+		(event.kind === "task_steps" || event.kind === "task_review") && event.taskId != null && event.taskRevision != null);
 	return {
 		kind: event.kind,
 		title: notificationTextWithin(notificationLine(event.title, 80), 80, 254) ?? "Open the app",
@@ -853,7 +855,8 @@ export function notificationPayload(
 		...(taskTitle ? { taskTitle } : {}), ...(event.proofArtifactId ? { proofArtifactId: event.proofArtifactId } : {}), ...(event.taskRevision === undefined ? {} : { taskRevision: event.taskRevision }),
 		...(event.key && Buffer.byteLength(JSON.stringify(event.key)) <= 160 ? { key: event.key } : {}),
 		...(event.kind === "test" ? {} : { level: notificationAlertLevel(event.kind, event.question?.warning) }),
-		...(question ? { question } : {}), ...(event.expiresAt ? { expiresAt: event.expiresAt } : {}),
+		...(question ? { question } : {}), ...(laterAllowed ? { laterAllowed: true } : {}),
+		...(event.expiresAt ? { expiresAt: event.expiresAt } : {}),
 		...(event.sharedLimitKey ? { sharedLimitKey: event.sharedLimitKey } : {}),
 	};
 }

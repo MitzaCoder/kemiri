@@ -23,12 +23,15 @@ internal suspend fun postPushActionStatus(app: HarnessApplication, action: Pendi
     val pending = result == null && action.phase == PushActionPhase.Waiting
     val (title, line) = when (result) {
         null -> when {
+            action.kind == PushActionKind.Later -> "Putting aside until tomorrow morning" to if (pending) "In 5 seconds. Undo cancels it." else "Putting aside…"
             action.kind == PushActionKind.MarkRead -> "Marking read" to if (pending) "In 5 seconds. Undo cancels it." else "Marking this reply read…"
             visibleText && preview != null -> "Sending “$preview”" to if (pending) "In 5 seconds. Undo cancels it." else "Sending to $name…"
             else -> "Sending a message" to if (pending) "In 5 seconds. Undo cancels it." else "Sending…"
         }
-        PushActionResult.Stale -> "This question changed" to "Nothing was sent. Open to read the current question."
-        PushActionResult.ReadInApp -> "Open this question" to "Nothing was sent. Review it in the app."
+        PushActionResult.Stale -> if (action.kind == PushActionKind.Later) "This item changed" to "Nothing was put aside. Open to see what needs attention."
+            else "This question changed" to "Nothing was sent. Open to read the current question."
+        PushActionResult.ReadInApp -> if (action.kind == PushActionKind.Later) "Open this item" to "Nothing was put aside. Review it in the app."
+            else "Open this question" to "Nothing was sent. Review it in the app."
         PushActionResult.SignedOut -> "Not sent" to "This phone is not signed in to that computer. Open the app to sign in."
         PushActionResult.Offline -> "Not sent" to if (visibleText && preview != null) "“$preview” was not sent to $name." else "The action did not reach the computer."
         PushActionResult.Unconfirmed -> "Could not confirm" to "The computer did not confirm delivery. Open to check."

@@ -27,6 +27,7 @@ import {
 	NotificationStateStore,
 	NotificationStore,
 	Notifier,
+	boardQuestionNotification,
 	createVapidKeys,
 	inQuietHours,
 	loadOrCreateVapidKeys,
@@ -615,6 +616,21 @@ describe("filtering", () => {
 		expect(notificationTag({ kind: "worker_report", projectId: "p", workerId: "w", scheduleId: null })).toBe(
 			"worker_report:p:w",
 		);
+	});
+
+	it("marks only revisioned owner-attention notifications as offering Later", () => {
+		const push = (event: Parameters<typeof notificationPayload>[1]) =>
+			notificationPayload({ backendKey: "bakery" }, event, "2026-11-05T10:00:01Z");
+		const question = boardQuestionNotification({ projectId: "project-1", projectName: "Bakery", questionId: "Q1", text: "Which day?" });
+		expect(push(question).laterAllowed).toBe(true);
+		expect(push({ ...question, question: { ...question.question!, warning: true } }).laterAllowed).toBe(true);
+		expect(push({ ...question, question: { ...question.question!, approval: true } }).laterAllowed).toBeUndefined();
+		for (const kind of ["task_steps", "task_review"] as const) {
+			const task = { kind, projectId: "project-1", taskId: "T1", taskRevision: 3, title: "Bakery", body: "Check the sign" };
+			expect(push(task).laterAllowed).toBe(true);
+			expect(push({ ...task, taskRevision: undefined }).laterAllowed).toBeUndefined();
+		}
+		expect(push({ ...question, kind: "worker_failed" }).laterAllowed).toBeUndefined();
 	});
 
 	it("keeps the dedupe keys bounded and names the app as the VAPID subject", async () => {

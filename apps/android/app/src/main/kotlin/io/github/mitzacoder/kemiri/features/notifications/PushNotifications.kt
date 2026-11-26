@@ -184,6 +184,17 @@ suspend fun showPushNotification(context: Context, payload: NotificationPayload,
     }
 }
 
+/** Don’t clear a replacement card that arrived while the action was being staged. */
+internal fun cancelPushActionCard(context: Context, token: String, source: PushActionSource): Boolean = synchronized(pushCardsLock) {
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return@synchronized false
+    if (findPushActionSource(manager, token) != source) return@synchronized false
+    val payload = source.payload
+    cancelPushCards(context) { card, _ ->
+        card.backendKey == payload.backendKey && card.tag == payload.tag && card.key == payload.key && card.at == payload.at
+    }
+    true
+}
+
 /** Recover card identities from Android, including after a process restart. Prune summaries emptied by the app. */
 internal fun cancelPushCards(context: Context?, matches: (NotificationPayload, Boolean) -> Boolean) {
     val manager = context?.getSystemService(NotificationManager::class.java) ?: return

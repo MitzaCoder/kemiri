@@ -1,6 +1,8 @@
 package io.github.mitzacoder.kemiri.features.notifications
 
 import io.github.mitzacoder.kemiri.HarnessApplication
+import io.github.mitzacoder.kemiri.data.BoardView
+import io.github.mitzacoder.kemiri.data.HarnessFeature
 import io.github.mitzacoder.kemiri.data.ClientException
 import io.github.mitzacoder.kemiri.data.ConnectionStatus
 import io.github.mitzacoder.kemiri.data.HarnessClient
@@ -9,6 +11,8 @@ import io.github.mitzacoder.kemiri.protocol.AnswersUpdateRequest
 import io.github.mitzacoder.kemiri.protocol.AnswersUpdateResponse
 import io.github.mitzacoder.kemiri.protocol.BoardGetRequest
 import io.github.mitzacoder.kemiri.protocol.BoardGetResponse
+import io.github.mitzacoder.kemiri.protocol.BoardLaterSetRequest
+import io.github.mitzacoder.kemiri.protocol.BoardLaterSetResponse
 import io.github.mitzacoder.kemiri.protocol.BoardQuestion
 import io.github.mitzacoder.kemiri.protocol.BoardQuestionAnswerRequest
 import io.github.mitzacoder.kemiri.protocol.BoardQuestionAnswerResponse
@@ -77,6 +81,16 @@ internal suspend fun deliverPushAction(app: HarnessApplication, action: PendingP
                 val request = action.answerRequest(project)
                 client.exchangeAsSession(identity, request.id, request, BoardQuestionAnswerRequest.serializer(), BoardQuestionAnswerResponse.serializer())
             }
+            PushActionKind.Later -> {
+                if (!payload.offersLater() || !client.state.value.supports(HarnessFeature.ATTENTION_LATER)) return PushActionResult.ReadInApp
+                val read = BoardGetRequest(projectId = project)
+                val board = client.exchangeAsSession(identity, read.id, read, BoardGetRequest.serializer(), BoardGetResponse.serializer()).board
+                val target = BoardView(board).notificationLaterTarget(payload) ?: return PushActionResult.Stale
+                if (!pushActionsUnlocked(app)) return PushActionResult.Offline
+                val request = target.notificationLaterRequest(project, app.repository.settings.value.workDayStart)
+                mayHaveCommitted = true
+                client.exchangeAsSession(identity, request.id, request, BoardLaterSetRequest.serializer(), BoardLaterSetResponse.serializer())
+            }
             PushActionKind.Reply -> {
                 mayHaveCommitted = true
                 val request = action.replyRequest(project)
@@ -103,6 +117,7 @@ internal suspend fun deliverPushAction(app: HarnessApplication, action: PendingP
         return when {
             error.code in authenticationErrors -> PushActionResult.SignedOut
             action.kind == PushActionKind.Answer && error.code in setOf("board_conflict", "unknown_task", "unknown_project") -> PushActionResult.Stale
+            action.kind == PushActionKind.Later && error.code in setOf("board_conflict", "not_found", "bad_request") -> PushActionResult.Stale
             error.code == "not_ready" -> PushActionResult.Offline
             error.code in uncertainErrors -> if (mayHaveCommitted) PushActionResult.Unconfirmed else PushActionResult.Offline
             else -> PushActionResult.Rejected

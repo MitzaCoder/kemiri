@@ -42,9 +42,11 @@ internal fun BoardView.laterTarget(task: BoardTask): LaterTarget? {
     val request = laterRequest(task.id) ?: return null
     if (request.archived || isSettled(request.status)) return null
     val asks = questions.filter { question -> question.laterAllowed() && question.taskId?.let { laterRequest(it)?.id } == request.id }
-    val failed = tasks.any { it.state?.kind == "failed" && !isSettled(it.status) && laterRequest(it.id)?.id == request.id }
+    val parts = tasks.filter { !it.archived && !isSettled(it.status) && laterRequest(it.id)?.id == request.id }
+    val failed = parts.any { it.state?.kind == "failed" }
+    val stepsNeeded = request.state?.liveWorkSince == null && parts.any { it.state?.kind == "steps_needed" }
     val kind = request.state?.kind
-    if (request.later == null && asks.isEmpty() && !failed && kind != "steps_needed" && kind != "review") return null
+    if (request.later == null && asks.isEmpty() && !failed && !stepsNeeded && kind != "review") return null
     return LaterTarget(request.id, request.revision, request.title, question = false, urgent = failed || asks.any(::isWarning), record = request.later)
 }
 
@@ -79,11 +81,14 @@ internal fun laterNeedLabel(task: BoardTask, asks: List<BoardQuestion>): String 
 internal data class LaterChoice(val label: String, val until: Instant? = null, val whenLast: Boolean = false, val pickDate: Boolean = false)
 private val laterLimit = Duration.ofDays(30)
 
+internal fun laterTomorrowMorning(now: Instant, zone: ZoneId, start: String): Instant =
+    now.atZone(zone).toLocalDate().plusDays(1).atTime(LocalTime.parse(normalizeWorkDayStart(start))).atZone(zone).toInstant()
+
 internal fun laterChoices(now: Instant, zone: ZoneId, start: String, urgent: Boolean, question: Boolean): List<LaterChoice> {
     val today = now.atZone(zone).toLocalDate()
     val morning = LocalTime.parse(normalizeWorkDayStart(start))
     fun deadline(day: LocalDate, time: LocalTime = morning) = day.atTime(time).atZone(zone).toInstant()
-    val tomorrow = deadline(today.plusDays(1))
+    val tomorrow = laterTomorrowMorning(now, zone, start)
     return buildList {
         if (urgent) now.plusSeconds(3600).takeIf { it <= tomorrow }?.let { add(LaterChoice("In 1 hour", it)) }
         deadline(today, LocalTime.of(18, 0)).takeIf { it > now && (!urgent || it <= tomorrow) }?.let {

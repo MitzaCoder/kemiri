@@ -298,6 +298,27 @@ class NotificationCenter(
         } catch (_: Exception) { "Could not send the answer. Try again." }
     }
 
+    internal suspend fun postponeAlert(item: InAppAlert): String? {
+        val payload = item.pushPayload()
+        val project = payload.projectId ?: return "Open this item to check it."
+        val client = repository.session(item.backendKey)?.client ?: return "This computer is not connected."
+        if (!client.state.value.supports(HarnessFeature.ATTENTION_LATER)) return "Open this item to check it."
+        return try {
+            val board = client.request(BoardGetRequest(projectId = project)).board
+            val target = BoardView(board).notificationLaterTarget(payload) ?: return "This item changed. Open to check it."
+            client.request(target.notificationLaterRequest(project, repository.settings.value.workDayStart))
+            synchronized(alertLock) {
+                alertQueue.retain { it.identity != item.identity }
+                publishBanners()
+            }
+            null
+        } catch (error: CancellationException) { throw error }
+        catch (error: ClientException) {
+            if (error.code in setOf("board_conflict", "not_found", "bad_request")) "This item changed. Open to check it."
+            else "Could not confirm Later. Open to check it."
+        } catch (_: Exception) { "Could not confirm Later. Open to check it." }
+    }
+
     private fun cursor(key: String): AlertCursor? = cursors[key] ?: cursorStore?.getString(key, null)?.let { raw ->
         runCatching { wireJson.decodeFromString(AlertCursor.serializer(), raw) }.getOrNull()?.also { cursors[key] = it }
     }

@@ -4177,7 +4177,12 @@ on postponed answers. Bring back clears the record; answering in the list or tas
 postponed. The drawer has a muted Later link per project. Counts, chat pins, Needs you sections and graph
 attention ignore postponed questions. Android shows `later_back` silently in the existing Quiet updates channel
 and opens Tasks when tapped. Alert settlement removes the original Android cards and their launcher dot if no
-other notification remains. Notification and popup shortcuts are not part of this stage.
+other notification remains.
+
+**Later shortcuts (T520).** The same quiet clock stays on open question cards in web and Android. Android's single
+in-app notification pop-up and detailed system cards offer Later for questions, steps and reviews. One tap chooses
+local tomorrow morning. Warnings may use Later but not shade answers. Failures and warnings still have the server's
+next-morning limit. Browser system notifications still open the app without changing the board.
 
 Failure refs name deployment/failed source IDs; working refs name live sources. Fallback
 states use the stored status start, waiting record or settlement timestamp. The coordinator
@@ -8368,9 +8373,10 @@ message text clears detailed cards and their chat shortcuts and redacts any pend
 conversation title as its sender so Android can omit the redundant name next to the collapsed text.
 
 Ordinary questions offer their short choices and a native Reply field; larger questions offer Reply and Open. Android
-shows at most three native action slots. With three choices, the first two get direct buttons and the third appears
-as an app-provided reply chip. Warnings and tool and run approvals open the app only. Chat replies offer Reply and Mark
-read. When message text is off, the app does not offer quick actions on generic cards.
+shows at most three native action slots. If Later is offered, one short choice gets a direct button and the remaining
+choices stay in Reply. Without Later, two choices get direct buttons. Warnings can offer Later and Open without Reply.
+Tool and run approvals open the app only. Chat replies offer Reply and Mark read. When message text is off, the app
+omits these quick actions.
 
 Every shade button requests device authentication, and the non-exported receiver checks that the phone is unlocked
 before it trusts an action from the exact active card. A device-private record and a JobScheduler fallback keep the
@@ -8378,6 +8384,12 @@ five-second Undo window across process death. The in-process timer and the job c
 both deliver it. Nothing is sent when the action is undone, or when the phone is locked before delivery. A reboot or a
 job delayed by more than two minutes does not send old work later. The card says what happened and offers an explicit
 retry when safe. Android may close the shade on authenticated button taps; Undo remains on the status card. It reports a missing acknowledgement as unconfirmed rather than claiming nothing was sent.
+
+The optional `laterAllowed` push field comes with the question or task revision. The phone checks that the exact card
+is still active before staging Later and clearing it. After Undo's window, it reads the live board on the same signed-in
+socket, checks the notice revision and need, then writes `board.later.set` with the live root request or taskless
+question revision. The phone checks that it is unlocked again before the write. A missing acknowledgement is not
+retryable from the shade because another write could extend a postponement. Normal alert settlement clears other cards.
 
 The pending record binds the tap to the phone's paired backend and device session without retaining tokens. Replies and
 answers go through that signed-in socket, never through Firebase or the relay. Answers use the existing board answer

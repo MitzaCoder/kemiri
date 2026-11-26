@@ -285,6 +285,7 @@ export const NotificationPayloadSchema = Type.Object({
 	key: Type.Optional(Type.String({ description: "This event, rather than the tag it replaces." })),
 	level: Type.Optional(Type.Union([Type.Literal("urgent"), Type.Literal("important"), Type.Literal("info"), Type.Literal("inbox")])),
 	question: Type.Optional(NotificationQuestionSchema),
+	laterAllowed: Type.Optional(Type.Boolean({ description: "Offers Later on the Android notification. The signed-in app still checks the live board before writing." })),
 	expiresAt: Type.Optional(Type.String({ description: "ISO 8601 deadline when the event has a known expiry." })),
 	sharedLimitKey: Type.Optional(Type.String({ description: "Opaque identity for one kind of notice about the same verified subscription window." })),
 	resolved: Type.Optional(Type.Array(NotificationResolvedTargetSchema, { minItems: 1, maxItems: RESOLVED_PUSH_TARGET_LIMIT })),

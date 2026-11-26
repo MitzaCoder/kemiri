@@ -4900,6 +4900,7 @@ data class NotificationPayload(
     val `key`: String? = null,
     val `level`: String? = null,
     val `question`: NotificationPayloadQuestion? = null,
+    val `laterAllowed`: Boolean? = null,
     val `expiresAt`: String? = null,
     val `sharedLimitKey`: String? = null,
     val `resolved`: List<NotificationPayloadResolvedItem>? = null
@@ -5106,6 +5107,7 @@ data class NotificationAlert(
     val `key`: String,
     val `level`: String,
     val `question`: NotificationPayloadQuestion? = null,
+    val `laterAllowed`: Boolean? = null,
     val `expiresAt`: String? = null,
     val `sharedLimitKey`: String? = null,
     val `resolved`: List<NotificationPayloadResolvedItem>? = null,
